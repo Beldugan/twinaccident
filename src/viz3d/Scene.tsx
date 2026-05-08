@@ -32,37 +32,36 @@ function AnimatedVehicle({ record, trajectory, progress, color, reconstruction }
     if (!groupRef.current) return;
 
     if (reconstruction.isStationaryVictim) {
-      // Victimă staționară: stă pe loc până la 85%, apoi e împinsă de crash
       if (progress < 0.85) {
         groupRef.current.position.set(0, 0, 0);
         groupRef.current.rotation.y = 0;
       } else {
-        // Faza crash: vehiculul e propulsat în față de deltaV
-        const crashAlpha = (progress - 0.85) / 0.15; // 0..1 în intervalul 0.85..1
-        const eased = crashAlpha * crashAlpha * (3 - 2 * crashAlpha); // smoothstep
+        const crashAlpha = (progress - 0.85) / 0.15;
+        const eased = crashAlpha * crashAlpha * (3 - 2 * crashAlpha);
         const deltaV_ms = reconstruction.deltaV_longitudinal_kmh / 3.6;
         const crashDuration_s = reconstruction.crashDuration_ms / 1000 || 0.25;
-        // Distanță = integrare trapezoidală: avg_speed * duration
+        // Victima e împinsă înainte pe drum (axa Z)
         const postImpactDist = (deltaV_ms / 2) * crashDuration_s * eased * 8;
-        groupRef.current.position.set(postImpactDist, 0, 0);
+        groupRef.current.position.set(0, 0, postImpactDist);
         groupRef.current.rotation.y = 0;
       }
       return;
     }
 
     // Vehicul normal: urmăresc traiectoria
+    // trajectory.x = distanță înainte → scene Z (de-a lungul drumului)
+    // trajectory.y = deviație laterală → scene X
     if (trajectory.length < 2) return;
     const idx = Math.min(Math.floor(progress * (trajectory.length - 1)), trajectory.length - 2);
     const alpha = progress * (trajectory.length - 1) - idx;
     const p0 = trajectory[idx];
     const p1 = trajectory[idx + 1];
+    const lx = p0.y + (p1.y - p0.y) * alpha;  // lateral → X
+    const lz = p0.x + (p1.x - p0.x) * alpha;  // forward → Z
+    const heading = p0.heading + (p1.heading - p0.heading) * alpha;
 
-    groupRef.current.position.set(
-      p0.x + (p1.x - p0.x) * alpha,
-      0,
-      p0.y + (p1.y - p0.y) * alpha
-    );
-    groupRef.current.rotation.y = -(p0.heading + (p1.heading - p0.heading) * alpha);
+    groupRef.current.position.set(lx, 0, lz);
+    groupRef.current.rotation.y = -heading;
   });
 
   return (
@@ -73,16 +72,16 @@ function AnimatedVehicle({ record, trajectory, progress, color, reconstruction }
 }
 
 // Vehiculul agresor care apare din spate pentru scenariul rear-end
-function AttackerVehicle({ progress, deltaV_kmh }: { progress: number; deltaV_kmh: number }) {
+function AttackerVehicle({ progress }: { progress: number }) {
   const groupRef = useRef<THREE.Group>(null);
 
   useFrame(() => {
     if (!groupRef.current) return;
     if (progress < 0.85) {
-      // Vine din spate (direcție -X) cu viteza agresorului estimată
-      const approachSpeed_ms = deltaV_kmh / 3.6 / 0.15;
-      const dist = -(1 - progress / 0.85) * approachSpeed_ms * 5 * 0.3;
-      groupRef.current.position.set(dist - 5, 0, 0);
+      // Vine din spate pe drum (direcție -Z) cu viteza agresorului
+      const approachDist = -(1 - progress / 0.85) * 25;
+      groupRef.current.position.set(0, 0, approachDist - 6);
+      groupRef.current.rotation.y = 0;
       groupRef.current.visible = true;
     } else {
       groupRef.current.visible = false;
@@ -108,9 +107,10 @@ export function Scene3D({ record, reconstruction, progress }: SceneProps) {
   const showImpact = reconstruction.isStationaryVictim
     ? progress >= 0.83
     : progress >= 0.95;
+  // trajectory.y → scene X (lateral), trajectory.x → scene Z (forward)
   const impactPos: [number, number, number] = reconstruction.isStationaryVictim
     ? [0, 0, 0]
-    : [impactPoint?.x ?? 0, 0, impactPoint?.y ?? 0];
+    : [impactPoint?.y ?? 0, 0, impactPoint?.x ?? 0];
 
   return (
     <div style={{ width: '100%', height: '100%', minHeight: 420 }}>
@@ -142,7 +142,7 @@ export function Scene3D({ record, reconstruction, progress }: SceneProps) {
           />
 
           {reconstruction.isStationaryVictim && (
-            <AttackerVehicle progress={progress} deltaV_kmh={reconstruction.deltaV_longitudinal_kmh} />
+            <AttackerVehicle progress={progress} />
           )}
 
           {showImpact && (
