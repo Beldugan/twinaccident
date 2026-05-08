@@ -10,7 +10,7 @@
 
 ## Demo live
 
-**[https://YOUR_USERNAME.github.io/twinaccident/](https://YOUR_USERNAME.github.io/twinaccident/)** *(înlocuiește YOUR_USERNAME)*
+**[https://beldugan.github.io/twinaccident/](https://beldugan.github.io/twinaccident/)**
 
 ---
 
@@ -45,7 +45,7 @@
 ## Instalare și rulare locală
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/twinaccident.git
+git clone https://github.com/Beldugan/twinaccident.git
 cd twinaccident
 npm install
 npm run dev
@@ -66,12 +66,12 @@ npm run build
 1. Creează un repository nou pe GitHub: `twinaccident` (public)
 2. Adaugă remote-ul și face push:
    ```bash
-   git remote add origin https://github.com/YOUR_USERNAME/twinaccident.git
+   git remote add origin https://github.com/Beldugan/twinaccident.git
    git push -u origin main
    ```
 3. În **Settings → Pages** → Source: **GitHub Actions**
 4. La fiecare push pe `main`, GitHub Actions va deploya automat la  
-   `https://YOUR_USERNAME.github.io/twinaccident/`
+   `https://Beldugan.github.io/twinaccident/`
 
 ---
 
