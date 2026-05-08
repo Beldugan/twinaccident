@@ -18,8 +18,7 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
   function runAnalysis(record: EdrRecord) {
-    // Șterg rezultatele vechi ÎNAINTE de calculul nou — previne afișarea datelor stale
-    dispatch({ type: 'SET_RESULTS', reconstruction: null as any, behavior: null as any, audit: null as any, conclusions: null as any });
+    // Rămânem pe ecranul input cu spinner până calculul se termină
     dispatch({ type: 'SET_ANALYZING', value: true });
     dispatch({ type: 'SET_ERROR', error: null });
     dispatch({ type: 'SET_PRIMARY_RECORD', record });
@@ -29,7 +28,7 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
       const behavior = analyzeBehavior(record, state.surface, state.speedLimit_kmh);
       const audit = auditSafetySystems(record, state.surface);
       const conclusions = generateConclusions(reconstruction, behavior, audit, record.recordId);
-
+      // SET_RESULTS schimbă ecranul pe 'dashboard' — se face o singură dată cu toate datele
       dispatch({ type: 'SET_RESULTS', reconstruction, behavior, audit, conclusions });
     } catch (err) {
       dispatch({ type: 'SET_ERROR', error: `Eroare la analiză: ${String(err)}` });

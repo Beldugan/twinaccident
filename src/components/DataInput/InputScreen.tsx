@@ -26,11 +26,26 @@ export function InputScreen() {
     </button>
   );
 
+  // Overlay de loading — acoperă toată pagina cât durează analiza
+  if (state.isAnalyzing) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center gap-4">
+        <div className="w-12 h-12 border-4 border-red-500 border-t-transparent rounded-full animate-spin" />
+        <p className="text-zinc-300 text-lg font-medium">Analizează datele EDR...</p>
+        <p className="text-zinc-500 text-sm">Reconstituire cinematică, comportament șofer, audit sisteme</p>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-zinc-950 p-6">
       <div className="max-w-2xl mx-auto">
-        {/* Back */}
-        <Button variant="ghost" size="sm" className="mb-6" onClick={() => dispatch({ type: 'SET_SCREEN', screen: 'selector' })}>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="mb-6"
+          onClick={() => dispatch({ type: 'SET_SCREEN', screen: 'selector' })}
+        >
           <ArrowLeft className="w-4 h-4" />
           Înapoi
         </Button>
@@ -40,7 +55,21 @@ export function InputScreen() {
           {state.twoVehicleMode ? 'Mod: Două vehicule' : 'Mod: Un singur vehicul'}
         </p>
 
-        {/* Data input */}
+        {/* Eroare globală din store (ex. eroare de parsare) */}
+        {state.error && (
+          <div className="mb-4 p-4 bg-red-950/40 border border-red-700 rounded-xl text-red-300 text-sm">
+            <p className="font-medium mb-1">Eroare analiză</p>
+            <p className="font-mono text-xs break-all">{state.error}</p>
+            <button
+              className="mt-2 text-xs text-red-400 underline"
+              onClick={() => dispatch({ type: 'SET_ERROR', error: null })}
+            >
+              Închide
+            </button>
+          </div>
+        )}
+
+        {/* Sursa datelor */}
         <Card className="mb-4" title="Sursa datelor EDR">
           <div className="p-4">
             <div className="flex gap-2 mb-4">
@@ -55,7 +84,7 @@ export function InputScreen() {
           </div>
         </Card>
 
-        {/* Environment params */}
+        {/* Parametri mediu */}
         <Card title="Parametri mediu">
           <div className="p-4 grid grid-cols-2 gap-4">
             <div>
@@ -87,19 +116,6 @@ export function InputScreen() {
             </div>
           </div>
         </Card>
-
-        {state.isAnalyzing && (
-          <div className="mt-4 flex items-center justify-center gap-3 p-4 bg-zinc-900 rounded-xl">
-            <div className="w-5 h-5 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-            <span className="text-zinc-300">Rulează analiza fizică...</span>
-          </div>
-        )}
-
-        {state.error && (
-          <div className="mt-4 p-4 bg-red-950/30 border border-red-800 rounded-xl text-red-300 text-sm">
-            {state.error}
-          </div>
-        )}
       </div>
     </div>
   );
