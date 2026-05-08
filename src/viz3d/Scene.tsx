@@ -16,30 +16,53 @@ interface SceneProps {
   progress: number;
 }
 
-function AnimatedVehicle({ record, trajectory, progress, color }: {
+// progress 0..1 = linia timpului.
+// Pentru vehicule care se mișcă: urmăresc traiectoria pre-crash.
+// Pentru victimă staționară: stau pe loc 0..0.85, apoi animez faza crash 0.85..1.
+function AnimatedVehicle({ record, trajectory, progress, color, reconstruction }: {
   record: EdrRecord;
   trajectory: ReconstructionResult['preCrashTrajectory'];
   progress: number;
   color: string;
+  reconstruction: ReconstructionResult;
 }) {
   const groupRef = useRef<THREE.Group>(null);
 
   useFrame(() => {
-    if (!groupRef.current || trajectory.length < 2) return;
-    const idx = Math.min(
-      Math.floor(progress * (trajectory.length - 1)),
-      trajectory.length - 2
-    );
-    const alpha = (progress * (trajectory.length - 1)) - idx;
+    if (!groupRef.current) return;
+
+    if (reconstruction.isStationaryVictim) {
+      // Victimă staționară: stă pe loc până la 85%, apoi e împinsă de crash
+      if (progress < 0.85) {
+        groupRef.current.position.set(0, 0, 0);
+        groupRef.current.rotation.y = 0;
+      } else {
+        // Faza crash: vehiculul e propulsat în față de deltaV
+        const crashAlpha = (progress - 0.85) / 0.15; // 0..1 în intervalul 0.85..1
+        const eased = crashAlpha * crashAlpha * (3 - 2 * crashAlpha); // smoothstep
+        const deltaV_ms = reconstruction.deltaV_longitudinal_kmh / 3.6;
+        const crashDuration_s = reconstruction.crashDuration_ms / 1000 || 0.25;
+        // Distanță = integrare trapezoidală: avg_speed * duration
+        const postImpactDist = (deltaV_ms / 2) * crashDuration_s * eased * 8;
+        groupRef.current.position.set(postImpactDist, 0, 0);
+        groupRef.current.rotation.y = 0;
+      }
+      return;
+    }
+
+    // Vehicul normal: urmăresc traiectoria
+    if (trajectory.length < 2) return;
+    const idx = Math.min(Math.floor(progress * (trajectory.length - 1)), trajectory.length - 2);
+    const alpha = progress * (trajectory.length - 1) - idx;
     const p0 = trajectory[idx];
     const p1 = trajectory[idx + 1];
 
-    const x = p0.x + (p1.x - p0.x) * alpha;
-    const z = p0.y + (p1.y - p0.y) * alpha;
-    const heading = p0.heading + (p1.heading - p0.heading) * alpha;
-
-    groupRef.current.position.set(x, 0, z);
-    groupRef.current.rotation.y = -heading;
+    groupRef.current.position.set(
+      p0.x + (p1.x - p0.x) * alpha,
+      0,
+      p0.y + (p1.y - p0.y) * alpha
+    );
+    groupRef.current.rotation.y = -(p0.heading + (p1.heading - p0.heading) * alpha);
   });
 
   return (
@@ -49,8 +72,45 @@ function AnimatedVehicle({ record, trajectory, progress, color }: {
   );
 }
 
+// Vehiculul agresor care apare din spate pentru scenariul rear-end
+function AttackerVehicle({ progress, deltaV_kmh }: { progress: number; deltaV_kmh: number }) {
+  const groupRef = useRef<THREE.Group>(null);
+
+  useFrame(() => {
+    if (!groupRef.current) return;
+    if (progress < 0.85) {
+      // Vine din spate (direcție -X) cu viteza agresorului estimată
+      const approachSpeed_ms = deltaV_kmh / 3.6 / 0.15;
+      const dist = -(1 - progress / 0.85) * approachSpeed_ms * 5 * 0.3;
+      groupRef.current.position.set(dist - 5, 0, 0);
+      groupRef.current.visible = true;
+    } else {
+      groupRef.current.visible = false;
+    }
+  });
+
+  return (
+    <group ref={groupRef}>
+      <mesh position={[0, 0.7, 0]}>
+        <boxGeometry args={[1.8, 1.4, 4.5]} />
+        <meshStandardMaterial color="#ef4444" roughness={0.3} metalness={0.4} />
+      </mesh>
+      <mesh position={[0, 0.7, -1.5]}>
+        <boxGeometry args={[1.6, 0.8, 2.5]} />
+        <meshStandardMaterial color="#dc2626" roughness={0.2} />
+      </mesh>
+    </group>
+  );
+}
+
 export function Scene3D({ record, reconstruction, progress }: SceneProps) {
   const impactPoint = reconstruction.preCrashTrajectory[reconstruction.preCrashTrajectory.length - 1];
+  const showImpact = reconstruction.isStationaryVictim
+    ? progress >= 0.83
+    : progress >= 0.95;
+  const impactPos: [number, number, number] = reconstruction.isStationaryVictim
+    ? [0, 0, 0]
+    : [impactPoint?.x ?? 0, 0, impactPoint?.y ?? 0];
 
   return (
     <div style={{ width: '100%', height: '100%', minHeight: 420 }}>
@@ -59,44 +119,34 @@ export function Scene3D({ record, reconstruction, progress }: SceneProps) {
         <fog attach="fog" args={['#09090b', 50, 200]} />
 
         <ambientLight intensity={0.3} />
-        <directionalLight
-          position={[20, 30, 20]}
-          intensity={1.2}
-          castShadow
-          shadow-mapSize-width={2048}
-          shadow-mapSize-height={2048}
-        />
+        <directionalLight position={[20, 30, 20]} intensity={1.2} castShadow
+          shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
         <pointLight position={[0, 10, 0]} intensity={0.5} color="#4080ff" />
 
         <PerspectiveCamera makeDefault position={[15, 12, 20]} fov={55} />
-        <OrbitControls
-          target={[0, 0, 0]}
-          maxPolarAngle={Math.PI / 2.1}
-          minDistance={3}
-          maxDistance={80}
-        />
+        <OrbitControls target={[0, 0, 0]} maxPolarAngle={Math.PI / 2.1} minDistance={3} maxDistance={80} />
 
         <Suspense fallback={null}>
           <Road />
 
-          <TrajectoryLine
-            points={reconstruction.preCrashTrajectory}
-            color={COLORS.vehicle1}
-            opacity={0.6}
-          />
+          {!reconstruction.isStationaryVictim && (
+            <TrajectoryLine points={reconstruction.preCrashTrajectory} color={COLORS.vehicle1} opacity={0.6} />
+          )}
 
           <AnimatedVehicle
             record={record}
             trajectory={reconstruction.preCrashTrajectory}
             progress={progress}
             color={COLORS.vehicle1}
+            reconstruction={reconstruction}
           />
 
-          {progress >= 0.95 && impactPoint && (
-            <ImpactMarker
-              position={[impactPoint.x, 0, impactPoint.y]}
-              direction_deg={reconstruction.impactDirection_deg}
-            />
+          {reconstruction.isStationaryVictim && (
+            <AttackerVehicle progress={progress} deltaV_kmh={reconstruction.deltaV_longitudinal_kmh} />
+          )}
+
+          {showImpact && (
+            <ImpactMarker position={impactPos} direction_deg={reconstruction.impactDirection_deg} />
           )}
         </Suspense>
       </Canvas>
