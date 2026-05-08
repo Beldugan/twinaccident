@@ -90,8 +90,14 @@ export function analyzeBehavior(
   }
 
   const hazardOnset = detectHazardOnset(record);
-  const firstReaction = firstBrake_t ?? firstSteering_t;
-  const prt = firstReaction !== null ? Math.abs(firstReaction - hazardOnset) : 3.5;
+  // Prima reacție = cea mai timpurie dintre frână și volan
+  const firstReaction =
+    firstBrake_t !== null && firstSteering_t !== null
+      ? Math.min(firstBrake_t, firstSteering_t)
+      : firstBrake_t ?? firstSteering_t;
+  const prt = firstReaction !== null
+    ? Math.max(0, firstReaction - hazardOnset)
+    : 3.5;
 
   let prtAssessment: PrtAssessment;
   if (firstReaction === null) prtAssessment = 'no_reaction';

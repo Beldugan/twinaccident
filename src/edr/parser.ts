@@ -39,8 +39,10 @@ export function parseEdrCsv(csvText: string): EdrRecord {
       lateralAccel: parseFloat(obj.lateralAccel),
       yawRate: parseFloat(obj.yawRate),
       acceleratorPedal: parseFloat(obj.acceleratorPedal),
-      brakePedalApplied: parseBool(obj.brakePedalApplied ?? '0'),
       brakePedalPercent: obj.brakePedalPercent ? parseFloat(obj.brakePedalPercent) : undefined,
+      // brakePedalApplied: true dacă coloana explicită=1/true SAU dacă brakePedalPercent > 2%
+      brakePedalApplied: parseBool(obj.brakePedalApplied ?? '0') ||
+        (obj.brakePedalPercent ? parseFloat(obj.brakePedalPercent) > 2 : false),
       steeringWheelAngle: parseFloat(obj.steeringWheelAngle),
       engineRpm: obj.engineRpm ? parseFloat(obj.engineRpm) : undefined,
       absActive: parseBool(obj.absActive ?? '0'),
