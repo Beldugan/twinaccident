@@ -10,9 +10,8 @@ interface TrajectoryLineProps {
 
 export function TrajectoryLine({ points, color, opacity = 0.8 }: TrajectoryLineProps) {
   const lineObject = useMemo(() => {
-    // trajectory.x = distanță înainte → scene Z (de-a lungul drumului)
-    // trajectory.y = deviație laterală → scene X
-    const positions = points.flatMap(p => [p.y, 0.05, p.x]);
+    const S = 0.22; // același factor de scală ca în AnimatedVehicle
+    const positions = points.flatMap(p => [p.y * S, 0.05, p.x * S]);
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });

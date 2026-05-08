@@ -51,13 +51,15 @@ function AnimatedVehicle({ record, trajectory, progress, color, reconstruction }
     // Vehicul normal: urmăresc traiectoria
     // trajectory.x = distanță înainte → scene Z (de-a lungul drumului)
     // trajectory.y = deviație laterală → scene X
+    // TRAJ_SCALE comprimă distanța vizuală (nu afectează fizica/datele)
+    const TRAJ_SCALE = 0.22;
     if (trajectory.length < 2) return;
     const idx = Math.min(Math.floor(progress * (trajectory.length - 1)), trajectory.length - 2);
     const alpha = progress * (trajectory.length - 1) - idx;
     const p0 = trajectory[idx];
     const p1 = trajectory[idx + 1];
-    const lx = p0.y + (p1.y - p0.y) * alpha;  // lateral → X
-    const lz = p0.x + (p1.x - p0.x) * alpha;  // forward → Z
+    const lx = (p0.y + (p1.y - p0.y) * alpha) * TRAJ_SCALE;
+    const lz = (p0.x + (p1.x - p0.x) * alpha) * TRAJ_SCALE;
     const heading = p0.heading + (p1.heading - p0.heading) * alpha;
 
     groupRef.current.position.set(lx, 0, lz);
@@ -107,10 +109,10 @@ export function Scene3D({ record, reconstruction, progress }: SceneProps) {
   const showImpact = reconstruction.isStationaryVictim
     ? progress >= 0.83
     : progress >= 0.95;
-  // trajectory.y → scene X (lateral), trajectory.x → scene Z (forward)
+  const TRAJ_SCALE = 0.22;
   const impactPos: [number, number, number] = reconstruction.isStationaryVictim
     ? [0, 0, 0]
-    : [impactPoint?.y ?? 0, 0, impactPoint?.x ?? 0];
+    : [(impactPoint?.y ?? 0) * TRAJ_SCALE, 0, (impactPoint?.x ?? 0) * TRAJ_SCALE];
 
   return (
     <div style={{ width: '100%', height: '100%', minHeight: 420 }}>
