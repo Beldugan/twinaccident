@@ -1,4 +1,4 @@
-import { Suspense, useRef } from 'react';
+import { Suspense, useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import * as THREE from 'three';
@@ -10,21 +10,36 @@ import type { EdrRecord } from '../edr/schema';
 import type { ReconstructionResult } from '../analysis/reconstruction';
 import { COLORS } from '../utils/colors';
 
+// Scală vizuală: comprimă 90m reali la ~20m în scenă
+const TRAJ_SCALE = 0.22;
+
 interface SceneProps {
   record: EdrRecord;
   reconstruction: ReconstructionResult;
   progress: number;
 }
 
-// progress 0..1 = linia timpului.
-// Pentru vehicule care se mișcă: urmăresc traiectoria pre-crash.
-// Pentru victimă staționară: stau pe loc 0..0.85, apoi animez faza crash 0.85..1.
-function AnimatedVehicle({ record, trajectory, progress, color, reconstruction }: {
+// Calculează offset-ul astfel încât IMPACTUL să fie la origine [0,0,0]
+// — vehiculele apar în prim plan, impactul se produce în centrul camerei
+function useTrajOffset(trajectory: ReconstructionResult['preCrashTrajectory']) {
+  return useMemo(() => {
+    const last = trajectory[trajectory.length - 1];
+    if (!last) return { ox: 0, oz: 0 };
+    return {
+      ox: -(last.y * TRAJ_SCALE),  // lateral final → 0
+      oz: -(last.x * TRAJ_SCALE),  // forward final → 0
+    };
+  }, [trajectory]);
+}
+
+function AnimatedVehicle({ record, trajectory, progress, color, reconstruction, ox, oz }: {
   record: EdrRecord;
   trajectory: ReconstructionResult['preCrashTrajectory'];
   progress: number;
   color: string;
   reconstruction: ReconstructionResult;
+  ox: number;
+  oz: number;
 }) {
   const groupRef = useRef<THREE.Group>(null);
 
@@ -40,7 +55,6 @@ function AnimatedVehicle({ record, trajectory, progress, color, reconstruction }
         const eased = crashAlpha * crashAlpha * (3 - 2 * crashAlpha);
         const deltaV_ms = reconstruction.deltaV_longitudinal_kmh / 3.6;
         const crashDuration_s = reconstruction.crashDuration_ms / 1000 || 0.25;
-        // Victima e împinsă înainte pe drum (axa Z)
         const postImpactDist = (deltaV_ms / 2) * crashDuration_s * eased * 8;
         groupRef.current.position.set(0, 0, postImpactDist);
         groupRef.current.rotation.y = 0;
@@ -48,18 +62,15 @@ function AnimatedVehicle({ record, trajectory, progress, color, reconstruction }
       return;
     }
 
-    // Vehicul normal: urmăresc traiectoria
-    // trajectory.x = distanță înainte → scene Z (de-a lungul drumului)
-    // trajectory.y = deviație laterală → scene X
-    // TRAJ_SCALE comprimă distanța vizuală (nu afectează fizica/datele)
-    const TRAJ_SCALE = 0.22;
     if (trajectory.length < 2) return;
     const idx = Math.min(Math.floor(progress * (trajectory.length - 1)), trajectory.length - 2);
     const alpha = progress * (trajectory.length - 1) - idx;
     const p0 = trajectory[idx];
     const p1 = trajectory[idx + 1];
-    const lx = (p0.y + (p1.y - p0.y) * alpha) * TRAJ_SCALE;
-    const lz = (p0.x + (p1.x - p0.x) * alpha) * TRAJ_SCALE;
+
+    // Poziție cu offset → impactul la [0,0,0]
+    const lx = (p0.y + (p1.y - p0.y) * alpha) * TRAJ_SCALE + ox;
+    const lz = (p0.x + (p1.x - p0.x) * alpha) * TRAJ_SCALE + oz;
     const heading = p0.heading + (p1.heading - p0.heading) * alpha;
 
     groupRef.current.position.set(lx, 0, lz);
@@ -73,16 +84,15 @@ function AnimatedVehicle({ record, trajectory, progress, color, reconstruction }
   );
 }
 
-// Vehiculul agresor care apare din spate pentru scenariul rear-end
 function AttackerVehicle({ progress }: { progress: number }) {
   const groupRef = useRef<THREE.Group>(null);
 
   useFrame(() => {
     if (!groupRef.current) return;
     if (progress < 0.85) {
-      // Vine din spate pe drum (direcție -Z) cu viteza agresorului
-      const approachDist = -(1 - progress / 0.85) * 25;
-      groupRef.current.position.set(0, 0, approachDist - 6);
+      // Agresorul vine din -Z (din spatele victimei staționate la origine)
+      const approachDist = -(1 - progress / 0.85) * 22;
+      groupRef.current.position.set(0, 0, approachDist - 5);
       groupRef.current.rotation.y = 0;
       groupRef.current.visible = true;
     } else {
@@ -105,34 +115,45 @@ function AttackerVehicle({ progress }: { progress: number }) {
 }
 
 export function Scene3D({ record, reconstruction, progress }: SceneProps) {
-  const impactPoint = reconstruction.preCrashTrajectory[reconstruction.preCrashTrajectory.length - 1];
-  const showImpact = reconstruction.isStationaryVictim
-    ? progress >= 0.83
-    : progress >= 0.95;
-  const TRAJ_SCALE = 0.22;
-  const impactPos: [number, number, number] = reconstruction.isStationaryVictim
-    ? [0, 0, 0]
-    : [(impactPoint?.y ?? 0) * TRAJ_SCALE, 0, (impactPoint?.x ?? 0) * TRAJ_SCALE];
+  const { ox, oz } = useTrajOffset(reconstruction.preCrashTrajectory);
+  const showImpact = reconstruction.isStationaryVictim ? progress >= 0.83 : progress >= 0.95;
+
+  // Impactul este ÎNTOTDEAUNA la [0,0,0] — centrul camerei
+  const impactPos: [number, number, number] = [0, 0, 0];
 
   return (
     <div style={{ width: '100%', height: '100%', minHeight: 420 }}>
       <Canvas shadows>
         <color attach="background" args={['#09090b']} />
-        <fog attach="fog" args={['#09090b', 50, 200]} />
+        <fog attach="fog" args={['#09090b', 40, 120]} />
 
-        <ambientLight intensity={0.3} />
-        <directionalLight position={[20, 30, 20]} intensity={1.2} castShadow
+        <ambientLight intensity={0.4} />
+        <directionalLight position={[10, 20, 10]} intensity={1.2} castShadow
           shadow-mapSize-width={2048} shadow-mapSize-height={2048} />
-        <pointLight position={[0, 10, 0]} intensity={0.5} color="#4080ff" />
+        <pointLight position={[0, 8, 0]} intensity={0.8} color="#4080ff" />
+        {/* Lumină extra la punctul de impact pentru evidențiere */}
+        <pointLight position={[0, 5, 0]} intensity={0.6} color="#ff4444" distance={15} />
 
-        <PerspectiveCamera makeDefault position={[15, 12, 20]} fov={55} />
-        <OrbitControls target={[0, 0, 0]} maxPolarAngle={Math.PI / 2.1} minDistance={3} maxDistance={80} />
+        {/* Camera laterală-oblică: vehiculele vin dinspre -Z spre 0 */}
+        <PerspectiveCamera makeDefault position={[12, 8, -18]} fov={50} />
+        <OrbitControls
+          target={[0, 0, 0]}
+          maxPolarAngle={Math.PI / 2.1}
+          minDistance={5}
+          maxDistance={60}
+        />
 
         <Suspense fallback={null}>
           <Road />
 
           {!reconstruction.isStationaryVictim && (
-            <TrajectoryLine points={reconstruction.preCrashTrajectory} color={COLORS.vehicle1} opacity={0.6} />
+            <TrajectoryLine
+              points={reconstruction.preCrashTrajectory}
+              color={COLORS.vehicle1}
+              opacity={0.7}
+              ox={ox}
+              oz={oz}
+            />
           )}
 
           <AnimatedVehicle
@@ -141,6 +162,8 @@ export function Scene3D({ record, reconstruction, progress }: SceneProps) {
             progress={progress}
             color={COLORS.vehicle1}
             reconstruction={reconstruction}
+            ox={ox}
+            oz={oz}
           />
 
           {reconstruction.isStationaryVictim && (
