@@ -1,6 +1,6 @@
 import type { EdrRecord } from '../edr/schema';
 import { reconstructTrajectory, totalDistance, type TrajectoryPoint } from '../physics/kinematics';
-import { kineticEnergy, energyDissipated } from '../physics/energy';
+import { kineticEnergy } from '../physics/energy';
 
 export type SeverityClass = 'minor' | 'moderate' | 'severe' | 'fatal';
 
@@ -20,6 +20,7 @@ export interface ReconstructionResult {
   energyDissipatedAtImpact_J: number;
   energyRatio: number;
   severityClass: SeverityClass;
+  isStationaryVictim: boolean;
 }
 
 function classifySeverity(deltaV: number): SeverityClass {
@@ -32,28 +33,54 @@ function classifySeverity(deltaV: number): SeverityClass {
 export function reconstructAccident(record: EdrRecord): ReconstructionResult {
   const trajectory = reconstructTrajectory(record.preCrash);
   const speeds = record.preCrash.map(s => s.vehicleSpeed);
-  const averageSpeed = speeds.reduce((a, b) => a + b, 0) / speeds.length;
-  const maxSpeed = Math.max(...speeds);
+  const averageSpeed = speeds.length > 0
+    ? speeds.reduce((a, b) => a + b, 0) / speeds.length
+    : 0;
+  const maxSpeed = speeds.length > 0 ? Math.max(...speeds) : 0;
   const distance = totalDistance(trajectory);
 
   const impactSpeed = record.preCrash[record.preCrash.length - 1]?.vehicleSpeed ?? 0;
   const mass = record.vehicle.mass_total_kg;
-  const impactKE = kineticEnergy(mass, impactSpeed);
+
+  // Detectare victimă staționară (lovită din spate)
+  const isStationaryVictim = maxSpeed < 3.0;
 
   const lastCrash = record.crash[record.crash.length - 1];
   const deltaVLong = Math.abs(lastCrash?.deltaV_longitudinal ?? 0);
   const deltaVLat = Math.abs(lastCrash?.deltaV_lateral ?? 0);
   const deltaVTotal = Math.sqrt(deltaVLong ** 2 + deltaVLat ** 2);
 
-  const peakDecel = Math.max(...record.crash.map(c => Math.abs(c.longitudinalAccel)));
-  const crashDuration = (record.crash.length > 0)
+  const peakDecel = record.crash.length > 0
+    ? Math.max(...record.crash.map(c => Math.abs(c.longitudinalAccel)))
+    : 0;
+  const crashDuration = record.crash.length > 1
     ? (record.crash[record.crash.length - 1].t - record.crash[0].t) * 1000
     : 0;
 
-  const eDissipated = energyDissipated(mass, impactSpeed, deltaVLong);
-  const eRatio = impactKE > 0 ? eDissipated / impactKE : 0;
+  // Energia disipată:
+  // - Vehicul activ: energia cinetică pierdută (frânare + deformare)
+  // - Victimă staționară: energia absorbită din coliziune = KE câștigată din delta-V
+  let eDissipated: number;
+  let impactKE: number;
 
-  const impactAngle = deltaVLong > 0 ? Math.atan2(deltaVLat, deltaVLong) * 180 / Math.PI : 0;
+  if (isStationaryVictim) {
+    // Victima era la 0 km/h; energia vine de la agresor
+    // Calculăm energia absorbită de vehiculul victimei
+    const vPost = deltaVTotal / 3.6;
+    eDissipated = 0.5 * mass * vPost * vPost;
+    impactKE = eDissipated; // energia relevantă = cea transmisă
+  } else {
+    impactKE = kineticEnergy(mass, impactSpeed);
+    const vPost_ms = Math.max(0, (impactSpeed - deltaVLong) / 3.6);
+    const vPre_ms = impactSpeed / 3.6;
+    eDissipated = 0.5 * mass * (vPre_ms * vPre_ms - vPost_ms * vPost_ms);
+  }
+
+  const eRatio = impactKE > 0 ? Math.min(1, Math.abs(eDissipated) / impactKE) : 0;
+
+  const impactAngle = deltaVLong > 0
+    ? Math.atan2(deltaVLat, deltaVLong) * 180 / Math.PI
+    : 0;
 
   return {
     preCrashTrajectory: trajectory,
@@ -71,5 +98,6 @@ export function reconstructAccident(record: EdrRecord): ReconstructionResult {
     energyDissipatedAtImpact_J: eDissipated,
     energyRatio: eRatio,
     severityClass: classifySeverity(deltaVTotal),
+    isStationaryVictim,
   };
 }

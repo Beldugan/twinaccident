@@ -2,7 +2,7 @@ import type { EdrRecord } from '../edr/schema';
 import { totalStoppingDistance, theoreticalBrakingDistance } from '../physics/braking';
 import { MU_VALUES } from '../physics/constants';
 
-export type PrtAssessment = 'fast' | 'normal' | 'slow' | 'no_reaction';
+export type PrtAssessment = 'fast' | 'normal' | 'slow' | 'no_reaction' | 'stationary_victim';
 
 export interface BehaviorAnalysis {
   firstBrakeApplication_t: number | null;
@@ -19,6 +19,7 @@ export interface BehaviorAnalysis {
   inadequateBraking: boolean;
   panicSteering: boolean;
   noReaction: boolean;
+  isStationaryVictim: boolean;
   driverFault_estimated_percent: number;
   contributingFactors: string[];
 }
@@ -53,6 +54,32 @@ export function analyzeBehavior(
   const samples = record.preCrash;
   const impactSpeed = samples[samples.length - 1]?.vehicleSpeed ?? 0;
   const initialSpeed = samples[0]?.vehicleSpeed ?? 0;
+
+  // Vehicul staționat lovit din spate — victimă, nu cauza accidentului
+  const maxPreCrashSpeed = Math.max(...samples.map(s => s.vehicleSpeed));
+  const isStationaryVictim = maxPreCrashSpeed < 3.0;
+
+  if (isStationaryVictim) {
+    return {
+      firstBrakeApplication_t: null,
+      firstSteeringAction_t: null,
+      estimatedHazardOnset_t: samples[0]?.t ?? -5.0,
+      prtCalculated_s: 0,
+      prtAssessment: 'stationary_victim',
+      prtBenchmark_s: 1.5,
+      theoreticalStoppingDistance_m: 0,
+      actualStoppingDistance_m: 0,
+      couldHaveAvoided: false,
+      speedReductionPossible_kmh: 0,
+      excessiveSpeed: false,
+      inadequateBraking: false,
+      panicSteering: false,
+      noReaction: false,
+      isStationaryVictim: true,
+      driverFault_estimated_percent: 0,
+      contributingFactors: ['Vehicul staționat — victimă a coliziunii din spate'],
+    };
+  }
 
   let firstBrake_t: number | null = null;
   let firstSteering_t: number | null = null;
@@ -115,6 +142,7 @@ export function analyzeBehavior(
     inadequateBraking,
     panicSteering,
     noReaction,
+    isStationaryVictim: false,
     driverFault_estimated_percent: fault,
     contributingFactors: factors,
   };

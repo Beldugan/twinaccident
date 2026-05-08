@@ -25,19 +25,27 @@ export function generateConclusions(
 ): AnalysisConclusions {
   const sev = SEVERITY_LABELS[recon.severityClass] ?? recon.severityClass;
 
+  const victimNote = recon.isStationaryVictim
+    ? 'Vehiculul analizat era STAȚIONAR la momentul impactului (victimă a coliziunii din spate). '
+    : '';
+
   const summary =
-    `Accidentul analizat (înregistrare ${recordId}) prezintă o severitate ${sev}, ` +
-    `cu un delta-V total de ${recon.deltaV_total_kmh.toFixed(1)} km/h la o viteză de impact de ` +
-    `${recon.impactSpeed_kmh.toFixed(1)} km/h. Energia cinetică disipată la impact a fost ` +
-    `${(recon.energyDissipatedAtImpact_J / 1000).toFixed(1)} kJ (${(recon.energyRatio * 100).toFixed(0)}% din energia totală).`;
+    `${victimNote}Accidentul analizat (înregistrare ${recordId}) prezintă o severitate ${sev}, ` +
+    `cu un delta-V total de ${recon.deltaV_total_kmh.toFixed(1)} km/h. ` +
+    (recon.isStationaryVictim
+      ? `Energia absorbită de vehiculul victimă a fost ${(recon.energyDissipatedAtImpact_J / 1000).toFixed(1)} kJ.`
+      : `Viteza la impact: ${recon.impactSpeed_kmh.toFixed(1)} km/h. Energia disipată: ${(recon.energyDissipatedAtImpact_J / 1000).toFixed(1)} kJ (${(recon.energyRatio * 100).toFixed(0)}% din energia totală).`);
 
   const causeLines: string[] = [];
-  if (behavior.noReaction) {
+  if (behavior.isStationaryVictim) {
+    causeLines.push('Vehiculul analizat era staționar la un semafor sau în trafic oprit. Vina aparține conducătorului vehiculului agresor care nu a frânat la timp.');
+  } else if (behavior.noReaction) {
     causeLines.push('Șoferul nu a reacționat la situația de pericol (posibil distras sau adormit).');
   } else {
+    const prtLabel = behavior.prtAssessment === 'fast' ? 'RAPID' : behavior.prtAssessment === 'normal' ? 'NORMAL' : 'LENT';
     causeLines.push(
       `Șoferul a reacționat după un timp estimat de ${behavior.prtCalculated_s.toFixed(2)} s ` +
-      `(referință Olson: 1.5 s — evaluare: ${behavior.prtAssessment === 'fast' ? 'RAPID' : behavior.prtAssessment === 'normal' ? 'NORMAL' : 'LENT'}).`
+      `(referință Olson: 1.5 s — evaluare: ${prtLabel}).`
     );
   }
   if (behavior.excessiveSpeed) {

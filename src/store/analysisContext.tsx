@@ -18,6 +18,8 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
   function runAnalysis(record: EdrRecord) {
+    // Șterg rezultatele vechi ÎNAINTE de calculul nou — previne afișarea datelor stale
+    dispatch({ type: 'SET_RESULTS', reconstruction: null as any, behavior: null as any, audit: null as any, conclusions: null as any });
     dispatch({ type: 'SET_ANALYZING', value: true });
     dispatch({ type: 'SET_ERROR', error: null });
     dispatch({ type: 'SET_PRIMARY_RECORD', record });
@@ -30,7 +32,7 @@ export function AnalysisProvider({ children }: { children: ReactNode }) {
 
       dispatch({ type: 'SET_RESULTS', reconstruction, behavior, audit, conclusions });
     } catch (err) {
-      dispatch({ type: 'SET_ERROR', error: String(err) });
+      dispatch({ type: 'SET_ERROR', error: `Eroare la analiză: ${String(err)}` });
     }
   }
 
