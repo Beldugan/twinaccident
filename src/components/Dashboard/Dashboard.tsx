@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ArrowLeft, Box, BarChart2, FileText, Download } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, Box, BarChart2, FileText, Download, Play, Pause, RotateCcw } from 'lucide-react';
 import { useAnalysis } from '../../store/analysisContext';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
@@ -19,16 +19,65 @@ const SEVERITY_LABELS: Record<string, string> = {
   fatal: 'FATALĂ',
 };
 
+const PLAYBACK_DURATION_MS = 8000; // 8 secunde pentru întreaga simulare
+
 export function Dashboard() {
   const { state, dispatch } = useAnalysis();
   const [tab, setTab] = useState<Tab>('3d');
   const [progress, setProgress] = useState(0);
   const [playing, setPlaying] = useState(false);
+  const animFrameRef = useRef<number | null>(null);
+  const lastTimeRef = useRef<number | null>(null);
 
   const { reconstruction, behavior, audit, conclusions, primaryRecord } = state;
   if (!reconstruction || !behavior || !audit || !conclusions || !primaryRecord) return null;
 
+  // Buclă de animație cu requestAnimationFrame
+  useEffect(() => {
+    if (!playing) {
+      if (animFrameRef.current !== null) {
+        cancelAnimationFrame(animFrameRef.current);
+        animFrameRef.current = null;
+      }
+      lastTimeRef.current = null;
+      return;
+    }
+
+    const animate = (timestamp: number) => {
+      if (lastTimeRef.current === null) lastTimeRef.current = timestamp;
+      const delta = timestamp - lastTimeRef.current;
+      lastTimeRef.current = timestamp;
+
+      setProgress(prev => {
+        const next = prev + delta / PLAYBACK_DURATION_MS;
+        if (next >= 1) {
+          setPlaying(false);
+          return 1;
+        }
+        return next;
+      });
+
+      animFrameRef.current = requestAnimationFrame(animate);
+    };
+
+    animFrameRef.current = requestAnimationFrame(animate);
+    return () => {
+      if (animFrameRef.current !== null) cancelAnimationFrame(animFrameRef.current);
+    };
+  }, [playing]);
+
+  const handleReset = () => {
+    setPlaying(false);
+    setProgress(0);
+  };
+
   const sevColor = SEVERITY_COLORS[reconstruction.severityClass];
+
+  const tStart = reconstruction.preCrashTrajectory[0]?.t ?? -5;
+  const currentT = tStart + progress * Math.abs(tStart);
+  const timeLabel = currentT >= 0
+    ? `T+${currentT.toFixed(1)}s`
+    : `T${currentT.toFixed(1)}s`;
 
   const tabBtn = (t: Tab, icon: React.ReactNode, label: string) => (
     <button
@@ -112,33 +161,72 @@ export function Dashboard() {
             {tab === '3d' && (
               <div className="flex flex-col h-full">
                 <div className="flex-1 min-h-0" style={{ minHeight: 420 }}>
-                  <Scene3D record={primaryRecord} reconstruction={reconstruction} progress={progress} />
+                  <Scene3D
+                    record={primaryRecord}
+                    reconstruction={reconstruction}
+                    progress={progress}
+                  />
                 </div>
-                <div className="p-4 border-t border-zinc-800 flex items-center gap-4">
-                  <button
-                    className="w-8 h-8 rounded-lg bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-300 transition-colors"
-                    onClick={() => setPlaying(p => !p)}
-                  >
-                    {playing ? '⏸' : '▶'}
-                  </button>
-                  <div className="flex-1">
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={Math.round(progress * 100)}
-                      onChange={e => {
-                        setPlaying(false);
-                        setProgress(parseInt(e.target.value) / 100);
+
+                {/* Controale animație */}
+                <div className="p-4 border-t border-zinc-800">
+                  <div className="flex items-center gap-3 mb-2">
+                    {/* Play/Pause */}
+                    <button
+                      className="w-9 h-9 rounded-lg bg-red-600 hover:bg-red-500 flex items-center justify-center text-white transition-colors flex-shrink-0"
+                      onClick={() => {
+                        if (progress >= 1) { setProgress(0); }
+                        setPlaying(p => !p);
                       }}
-                      className="w-full accent-red-500"
-                    />
+                      title={playing ? 'Pauză' : 'Play'}
+                    >
+                      {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                    </button>
+
+                    {/* Reset */}
+                    <button
+                      className="w-9 h-9 rounded-lg bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center text-zinc-400 hover:text-white transition-colors flex-shrink-0"
+                      onClick={handleReset}
+                      title="Reîncepere"
+                    >
+                      <RotateCcw className="w-4 h-4" />
+                    </button>
+
+                    {/* Slider */}
+                    <div className="flex-1">
+                      <input
+                        type="range"
+                        min={0}
+                        max={1000}
+                        value={Math.round(progress * 1000)}
+                        onChange={e => {
+                          setPlaying(false);
+                          setProgress(parseInt(e.target.value) / 1000);
+                        }}
+                        className="w-full accent-red-500 h-2"
+                      />
+                    </div>
+
+                    {/* Timp curent */}
+                    <span className={`text-sm font-mono w-16 text-right font-bold ${
+                      currentT >= 0 ? 'text-red-400' : 'text-zinc-400'
+                    }`}>
+                      {timeLabel}
+                    </span>
                   </div>
-                  <span className="text-xs font-mono text-zinc-500 w-16 text-right">
-                    {(reconstruction.preCrashTrajectory[0]?.t ?? -5) + progress * 5 >= 0
-                      ? `T+${((reconstruction.preCrashTrajectory[0]?.t ?? -5) + progress * 5).toFixed(1)}s`
-                      : `T${((reconstruction.preCrashTrajectory[0]?.t ?? -5) + progress * 5).toFixed(1)}s`}
-                  </span>
+
+                  {/* Legenda timeline */}
+                  <div className="flex items-center gap-4 text-xs text-zinc-600">
+                    <span>◀ T-5.0s</span>
+                    <div className="flex-1 flex items-center gap-1">
+                      <div className="flex-1 h-px bg-zinc-800" />
+                      <span className="text-zinc-500">pre-crash</span>
+                      <div className="flex-1 h-px bg-zinc-800" />
+                      <span className="text-red-800 font-bold">T=0 IMPACT</span>
+                      <div className="w-8 h-px bg-zinc-800" />
+                    </div>
+                    <span>T+0s ▶</span>
+                  </div>
                 </div>
               </div>
             )}
